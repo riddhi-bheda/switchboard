@@ -9,25 +9,38 @@ const STATUS_ORDER = { active: 0, stalled: 1, upcoming: 2, completed: 3 }
 export default function Dashboard({ session }) {
   const navigate = useNavigate()
   const [projects, setProjects] = useState([])
+  const [folders, setFolders] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [filter, setFilter] = useState('all')
+  const [selectedFolder, setSelectedFolder] = useState(null)
+  const [showFolderInput, setShowFolderInput] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [savingFolder, setSavingFolder] = useState(false)
 
   const user = session.user
   const name = user.user_metadata?.full_name?.split(' ')[0] || 'there'
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
-        .from('projects')
-        .select('*, notes(text, created_at)')
-        .eq('user_id', user.id)
-        .order('created_at', { referencedTable: 'notes', ascending: false })
+      const [{ data: projectData }, { data: folderData }] = await Promise.all([
+        supabase
+          .from('projects')
+          .select('*, notes(text, created_at)')
+          .eq('user_id', user.id)
+          .order('created_at', { referencedTable: 'notes', ascending: false }),
+        supabase
+          .from('folders')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true }),
+      ])
 
-      if (data) {
-        const sorted = data.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
+      if (projectData) {
+        const sorted = projectData.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
         setProjects(sorted)
       }
+      if (folderData) setFolders(folderData)
       setLoading(false)
     }
     load()
@@ -37,11 +50,33 @@ export default function Dashboard({ session }) {
     setProjects(prev => [{ ...project, notes: [] }, ...prev])
   }
 
+  async function handleCreateFolder(e) {
+    e.preventDefault()
+    if (!folderName.trim()) return
+    setSavingFolder(true)
+    const { data, error } = await supabase
+      .from('folders')
+      .insert({ name: folderName.trim(), user_id: user.id })
+      .select()
+      .single()
+    setSavingFolder(false)
+    if (!error && data) {
+      setFolders(prev => [...prev, data])
+      setFolderName('')
+      setShowFolderInput(false)
+      setSelectedFolder(data.id)
+    }
+  }
+
   async function handleSignOut() {
     await supabase.auth.signOut()
   }
 
-  const filtered = filter === 'all' ? projects : projects.filter(p => p.status === filter)
+  const filtered = projects
+    .filter(p => selectedFolder === null || p.folder_id === selectedFolder)
+    .filter(p => filter === 'all' || p.status === filter)
+
+  const activeCount = projects.filter(p => p.status === 'active').length
 
   return (
     <div className="page">
@@ -66,54 +101,104 @@ export default function Dashboard({ session }) {
         </nav>
       </header>
 
-      <main className="dashboard-main">
-        <div className="dashboard-top">
-          <div>
-            <h1>Hey, {name} 👋</h1>
-            <p className="dashboard-subtitle">
-              {projects.filter(p => p.status === 'active').length} active project{projects.filter(p => p.status === 'active').length !== 1 ? 's' : ''} in flight
-            </p>
-          </div>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-            + New Project
-          </button>
-        </div>
-
-        <div className="filter-tabs">
-          {['all', 'active', 'stalled', 'upcoming', 'completed'].map(f => (
+      <div className="dashboard-body">
+        <aside className="sidebar">
+          <div className="sidebar-items">
             <button
-              key={f}
-              className={`filter-tab ${filter === f ? 'active' : ''}`}
-              onClick={() => setFilter(f)}
+              className={`sidebar-item ${selectedFolder === null ? 'active' : ''}`}
+              onClick={() => setSelectedFolder(null)}
             >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              All Projects
             </button>
-          ))}
-        </div>
+            {folders.map(f => (
+              <button
+                key={f.id}
+                className={`sidebar-item ${selectedFolder === f.id ? 'active' : ''}`}
+                onClick={() => setSelectedFolder(f.id)}
+              >
+                <span className="sidebar-folder-icon">📁</span>
+                {f.name}
+              </button>
+            ))}
+          </div>
 
-        {loading ? (
-          <div className="loading-center"><div className="spinner" /></div>
-        ) : filtered.length === 0 ? (
-          <div className="empty-state">
-            <p>No projects here yet.</p>
-            {filter === 'all' && (
-              <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-                Add your first project
+          <div className="sidebar-footer">
+            {showFolderInput ? (
+              <form onSubmit={handleCreateFolder} className="sidebar-folder-form">
+                <input
+                  type="text"
+                  placeholder="Folder name"
+                  value={folderName}
+                  onChange={e => setFolderName(e.target.value)}
+                  autoFocus
+                />
+                <div className="sidebar-folder-actions">
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={savingFolder || !folderName.trim()}>
+                    {savingFolder ? '…' : 'Add'}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setShowFolderInput(false); setFolderName('') }}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button className="sidebar-add-folder" onClick={() => setShowFolderInput(true)}>
+                + New folder
               </button>
             )}
           </div>
-        ) : (
-          <div className="projects-grid">
-            {filtered.map(project => (
-              <ProjectCard key={project.id} project={project} />
+        </aside>
+
+        <main className="dashboard-main">
+          <div className="dashboard-top">
+            <div>
+              <h1>Hey, {name} 👋</h1>
+              <p className="dashboard-subtitle">
+                {activeCount} active project{activeCount !== 1 ? 's' : ''} in flight
+              </p>
+            </div>
+            <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+              + New Project
+            </button>
+          </div>
+
+          <div className="filter-tabs">
+            {['all', 'active', 'stalled', 'upcoming', 'completed'].map(f => (
+              <button
+                key={f}
+                className={`filter-tab ${filter === f ? 'active' : ''}`}
+                onClick={() => setFilter(f)}
+              >
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
             ))}
           </div>
-        )}
-      </main>
+
+          {loading ? (
+            <div className="loading-center"><div className="spinner" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="empty-state">
+              <p>No projects here yet.</p>
+              {filter === 'all' && (
+                <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+                  Add your first project
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="projects-grid">
+              {filtered.map(project => (
+                <ProjectCard key={project.id} project={project} />
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
 
       {showModal && (
         <AddProjectModal
           userId={user.id}
+          folders={folders}
           onClose={() => setShowModal(false)}
           onCreated={handleProjectCreated}
         />

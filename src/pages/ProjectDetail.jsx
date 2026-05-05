@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { fetchCalendarEvents } from '../lib/calendar'
 import ContextCard from '../components/ContextCard'
 
-const TYPE_LABELS = {
+const LEGACY_TYPE_LABELS = {
   job_search: 'Job Search',
   trip: 'Trip Planning',
   client_project: 'Client Project',
@@ -24,17 +24,26 @@ function formatEventTime(iso) {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
+function displayType(type) {
+  return LEGACY_TYPE_LABELS[type] || type
+}
+
 export default function ProjectDetail({ session }) {
   const { id } = useParams()
   const navigate = useNavigate()
 
   const [project, setProject] = useState(null)
   const [notes, setNotes] = useState([])
+  const [links, setLinks] = useState([])
   const [calendarEvents, setCalendarEvents] = useState([])
   const [loading, setLoading] = useState(true)
 
   const [noteText, setNoteText] = useState('')
   const [addingNote, setAddingNote] = useState(false)
+
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkLabel, setLinkLabel] = useState('')
+  const [addingLink, setAddingLink] = useState(false)
 
   const [briefing, setBriefing] = useState('')
   const [generating, setGenerating] = useState(false)
@@ -48,9 +57,10 @@ export default function ProjectDetail({ session }) {
 
   useEffect(() => {
     async function load() {
-      const [{ data: projectData }, { data: notesData }] = await Promise.all([
+      const [{ data: projectData }, { data: notesData }, { data: linksData }] = await Promise.all([
         supabase.from('projects').select('*').eq('id', id).single(),
         supabase.from('notes').select('*').eq('project_id', id).order('created_at', { ascending: false }),
+        supabase.from('project_links').select('*').eq('project_id', id).order('created_at', { ascending: true }),
       ])
 
       if (!projectData) {
@@ -60,6 +70,7 @@ export default function ProjectDetail({ session }) {
 
       setProject(projectData)
       setNotes(notesData || [])
+      setLinks(linksData || [])
 
       const providerToken = session.provider_token
       if (providerToken && projectData.keyword) {
@@ -90,6 +101,35 @@ export default function ProjectDetail({ session }) {
     }
   }
 
+  async function handleAddLink(e) {
+    e.preventDefault()
+    if (!linkUrl.trim()) return
+
+    setAddingLink(true)
+    const { data, error } = await supabase
+      .from('project_links')
+      .insert({
+        project_id: id,
+        user_id: session.user.id,
+        url: linkUrl.trim(),
+        label: linkLabel.trim() || null,
+      })
+      .select()
+      .single()
+
+    setAddingLink(false)
+    if (!error && data) {
+      setLinks(prev => [...prev, data])
+      setLinkUrl('')
+      setLinkLabel('')
+    }
+  }
+
+  async function handleDeleteLink(linkId) {
+    await supabase.from('project_links').delete().eq('id', linkId)
+    setLinks(prev => prev.filter(l => l.id !== linkId))
+  }
+
   async function handleGetBriefing() {
     if (!apiKey) {
       setShowApiKeyInput(true)
@@ -106,7 +146,7 @@ export default function ProjectDetail({ session }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectName: project.name,
-          projectType: TYPE_LABELS[project.type] || project.type,
+          projectType: displayType(project.type),
           projectStatus: project.status,
           notes: notes.slice(0, 20),
           calendarEvents,
@@ -168,7 +208,7 @@ export default function ProjectDetail({ session }) {
           <div className="detail-meta">
             <h1>{project.name}</h1>
             <div className="detail-badges">
-              <span className="type-badge">{TYPE_LABELS[project.type] || project.type}</span>
+              <span className="type-badge">{displayType(project.type)}</span>
               <span className={`status-badge status-${project.status}`}>{project.status}</span>
               {project.keyword && (
                 <span className="keyword-badge">📅 {project.keyword}</span>
@@ -256,6 +296,53 @@ export default function ProjectDetail({ session }) {
           </div>
 
           <div className="detail-right">
+            <section className="section">
+              <h2>🔗 Links</h2>
+              <form onSubmit={handleAddLink} className="link-form">
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={linkUrl}
+                  onChange={e => setLinkUrl(e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="Label (optional)"
+                  value={linkLabel}
+                  onChange={e => setLinkLabel(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={addingLink || !linkUrl.trim()}
+                >
+                  {addingLink ? 'Adding…' : 'Add link'}
+                </button>
+              </form>
+              {links.length > 0 && (
+                <div className="links-list">
+                  {links.map(link => (
+                    <div key={link.id} className="link-item">
+                      <a href={link.url} target="_blank" rel="noreferrer" className="link-anchor">
+                        <span className="link-label">{link.label || link.url}</span>
+                        {link.label && <span className="link-url">{link.url}</span>}
+                      </a>
+                      <button
+                        className="link-delete"
+                        onClick={() => handleDeleteLink(link.id)}
+                        aria-label="Remove link"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {links.length === 0 && (
+                <p className="empty-state-sm">No links yet. Paste a Notion doc, Google Doc, or any URL above.</p>
+              )}
+            </section>
+
             <section className="section">
               <h2>📅 Upcoming Events</h2>
               {!session.provider_token ? (

@@ -1,15 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-const PROJECT_TYPES = [
-  { value: 'job_search', label: 'Job Search' },
-  { value: 'trip', label: 'Trip Planning' },
-  { value: 'client_project', label: 'Client Project' },
-  { value: 'personal_goal', label: 'Personal Goal' },
-  { value: 'conference', label: 'Conference / Event' },
-  { value: 'other', label: 'Other' },
-]
-
 const PROJECT_STATUSES = [
   { value: 'active', label: 'Active' },
   { value: 'upcoming', label: 'Upcoming' },
@@ -17,13 +8,14 @@ const PROJECT_STATUSES = [
   { value: 'completed', label: 'Completed' },
 ]
 
-export default function AddProjectModal({ userId, onClose, onCreated }) {
+export default function AddProjectModal({ userId, folders = [], onClose, onCreated }) {
   const [form, setForm] = useState({
     name: '',
-    type: 'job_search',
+    type: '',
     status: 'active',
     description: '',
     keyword: '',
+    folder_id: '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -34,14 +26,20 @@ export default function AddProjectModal({ userId, onClose, onCreated }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!form.name.trim()) return
+    if (!form.name.trim() || !form.type.trim()) return
 
     setSaving(true)
     setError('')
 
+    const payload = {
+      ...form,
+      user_id: userId,
+      folder_id: form.folder_id || null,
+    }
+
     const { data, error } = await supabase
       .from('projects')
-      .insert({ ...form, user_id: userId })
+      .insert(payload)
       .select()
       .single()
 
@@ -80,11 +78,13 @@ export default function AddProjectModal({ userId, onClose, onCreated }) {
           <div className="form-row">
             <div className="form-group">
               <label>Type</label>
-              <select value={form.type} onChange={e => set('type', e.target.value)}>
-                {PROJECT_TYPES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
+              <input
+                type="text"
+                placeholder="e.g. Marathon Training, Side Project"
+                value={form.type}
+                onChange={e => set('type', e.target.value)}
+                required
+              />
             </div>
 
             <div className="form-group">
@@ -96,6 +96,18 @@ export default function AddProjectModal({ userId, onClose, onCreated }) {
               </select>
             </div>
           </div>
+
+          {folders.length > 0 && (
+            <div className="form-group">
+              <label>Folder <span className="optional">(optional)</span></label>
+              <select value={form.folder_id} onChange={e => set('folder_id', e.target.value)}>
+                <option value="">No folder</option>
+                {folders.map(f => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="form-group">
             <label>Calendar keyword</label>

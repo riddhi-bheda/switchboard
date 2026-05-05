@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 
-const TYPE_LABELS = {
+const LEGACY_TYPE_LABELS = {
   job_search: 'Job Search',
   trip: 'Trip',
   client_project: 'Client',
@@ -24,7 +24,7 @@ export default function ProjectCard({ project }) {
     <div className="project-card" onClick={() => navigate(`/project/${project.id}`)}>
       <div className="project-card-header">
         <div>
-          <span className="type-badge">{TYPE_LABELS[project.type] || project.type}</span>
+          <span className="type-badge">{LEGACY_TYPE_LABELS[project.type] || project.type}</span>
           <span className={`status-badge ${STATUS_COLORS[project.status]}`}>{project.status}</span>
         </div>
       </div>
