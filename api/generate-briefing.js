@@ -3,7 +3,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { projectName, projectType, projectStatus, notes, calendarEvents, userApiKey } = req.body
+  const { projectName, projectType, projectStatus, notes, calendarEvents, userApiKey, githubData, notionData } = req.body
 
   if (!userApiKey) {
     return res.status(400).json({ error: 'Anthropic API key required' })
@@ -17,6 +17,11 @@ export default async function handler(req, res) {
     ? calendarEvents.map(e => `- ${e.summary} (${e.start})`).join('\n')
     : 'No upcoming calendar events.'
 
+  const integrationText = [
+    githubData ? githubData.text : null,
+    notionData ? `Notion Content:\n${notionData.content}` : null,
+  ].filter(Boolean).join('\n\n')
+
   const prompt = `You are a sharp productivity assistant. Generate a crisp context briefing for the following project.
 
 Project: ${projectName}
@@ -25,7 +30,7 @@ Status: ${projectStatus}
 
 Upcoming Calendar Events:
 ${eventsText}
-
+${integrationText ? `\n${integrationText}\n` : ''}
 Project Notes (newest first):
 ${notesText}
 

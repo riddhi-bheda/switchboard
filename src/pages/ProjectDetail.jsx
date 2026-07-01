@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fetchCalendarEvents } from '../lib/calendar'
 import ContextCard from '../components/ContextCard'
+import IntegrationPanel from '../components/IntegrationPanel'
 
 const LEGACY_TYPE_LABELS = {
   job_search: 'Job Search',
@@ -45,6 +46,7 @@ export default function ProjectDetail({ session }) {
   const [linkLabel, setLinkLabel] = useState('')
   const [addingLink, setAddingLink] = useState(false)
 
+  const [integrations, setIntegrations] = useState([])
   const [briefing, setBriefing] = useState('')
   const [generating, setGenerating] = useState(false)
   const [briefingError, setBriefingError] = useState('')
@@ -57,10 +59,11 @@ export default function ProjectDetail({ session }) {
 
   useEffect(() => {
     async function load() {
-      const [{ data: projectData }, { data: notesData }, { data: linksData }] = await Promise.all([
+      const [{ data: projectData }, { data: notesData }, { data: linksData }, { data: intData }] = await Promise.all([
         supabase.from('projects').select('*').eq('id', id).single(),
         supabase.from('notes').select('*').eq('project_id', id).order('created_at', { ascending: false }),
         supabase.from('project_links').select('*').eq('project_id', id).order('created_at', { ascending: true }),
+        supabase.from('project_integrations').select('*').eq('project_id', id),
       ])
 
       if (!projectData) {
@@ -71,6 +74,7 @@ export default function ProjectDetail({ session }) {
       setProject(projectData)
       setNotes(notesData || [])
       setLinks(linksData || [])
+      setIntegrations(intData || [])
 
       const providerToken = session.provider_token
       if (providerToken && projectData.keyword) {
@@ -141,6 +145,18 @@ export default function ProjectDetail({ session }) {
     setBriefing('')
 
     try {
+      const hasGitHub = integrations.some(i => i.provider === 'github')
+      const hasNotion = integrations.some(i => i.provider === 'notion')
+
+      const [githubData, notionData] = await Promise.all([
+        hasGitHub
+          ? fetch('/api/fetch-github', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: session.user.id, project_id: id }) }).then(r => r.ok ? r.json() : null).catch(() => null)
+          : null,
+        hasNotion
+          ? fetch('/api/fetch-notion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: session.user.id, project_id: id }) }).then(r => r.ok ? r.json() : null).catch(() => null)
+          : null,
+      ])
+
       const res = await fetch('/api/generate-briefing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -151,6 +167,8 @@ export default function ProjectDetail({ session }) {
           notes: notes.slice(0, 20),
           calendarEvents,
           userApiKey: apiKey,
+          githubData,
+          notionData,
         }),
       })
 
@@ -362,6 +380,8 @@ export default function ProjectDetail({ session }) {
                 </div>
               )}
             </section>
+
+            <IntegrationPanel projectId={id} userId={session.user.id} />
 
             {apiKey && (
               <div className="api-key-status">

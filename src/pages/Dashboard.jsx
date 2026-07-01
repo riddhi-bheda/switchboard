@@ -97,6 +97,7 @@ export default function Dashboard({ session }) {
         </div>
         <nav className="header-nav">
           <button className="nav-link" onClick={() => navigate('/weekly')}>This Week</button>
+          <button className="nav-link" onClick={() => navigate('/settings')}>Settings</button>
           <button className="btn btn-ghost btn-sm" onClick={handleSignOut}>Sign out</button>
         </nav>
       </header>

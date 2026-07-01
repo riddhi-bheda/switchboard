@@ -87,6 +87,44 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
+-- ── Integrations ────────────────────────────────────────────────────────────
+
+-- OAuth tokens stored server-side (service role only reads access_token)
+create table if not exists integration_tokens (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references profiles(id) on delete cascade not null,
+  provider text not null,
+  access_token text not null,
+  refresh_token text,
+  scope text,
+  meta jsonb default '{}',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(user_id, provider)
+);
+
+-- Per-project resource links (which repo/page is linked to this project)
+create table if not exists project_integrations (
+  id uuid default gen_random_uuid() primary key,
+  project_id uuid references projects(id) on delete cascade not null,
+  user_id uuid references profiles(id) on delete cascade not null,
+  provider text not null,
+  resource_id text not null,
+  resource_name text,
+  resource_type text,
+  created_at timestamptz default now(),
+  unique(project_id, provider)
+);
+
+alter table integration_tokens enable row level security;
+alter table project_integrations enable row level security;
+
+create policy "Users can view own token metadata"
+  on integration_tokens for select using (auth.uid() = user_id);
+
+create policy "Users can manage own project integrations"
+  on project_integrations for all using (auth.uid() = user_id);
+
 -- ── Migration: run these if upgrading an existing database ──────────────────
 
 -- 1. Create folders table
